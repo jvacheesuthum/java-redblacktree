@@ -1,0 +1,324 @@
+%:-use_module(library(lists)).
+
+test_strategy(Num, St1, St2) :-
+  list_result(Num, St1, St2, Results, _Nummoves, Times),
+  count(stalemate, Results, Stalemates),
+  count(exhaust, Results, ExhaustDraws),
+  count(b, Results, Blues),
+  count(r, Results, Reds),
+  min(_Nummoves, Min),
+  avg(_Nummoves, Avg),
+  avg(Times, Avgtime),
+  max_without_exhaust(_Nummoves, Max),
+  Draws is Num - Blues - Reds,
+  write('Draws : '), write(Draws), write('\n'),
+  write('Blue wins : '), write(Blues), write('\n'),
+  write('Red wins : '), write(Reds), write('\n'),
+  write('Longest game : '), write(Max), write('\n'),
+  write('Shortest game : '), write(Min), write('\n'),
+  write('Avg length : '), write(Avg), write('\n'),
+  write('Avg time : '), write(Avgtime), write('\n').
+
+list_result(0, _, _, [], [], []).
+list_result(Num, St1, St2, [Res|ResRest], [Moves|MoveRest], [Time|TimeRest]) :-
+  Num > 0,
+  statistics(walltime, [Start|_]),
+  play(quiet, St1, St2, Moves, Res),
+  statistics(walltime, [End|_]),
+  Time is End - Start,
+  Num2 is Num -1,
+  list_result(Num2, St1, St2, ResRest, MoveRest, TimeRest). 
+
+
+count(_, [], 0).
+%count(X, [X], 1).
+count(X, [H|T], Count) :-
+  count(X, T, C),
+  (X == H -> Count is 1 + C ; Count is C).
+
+max_without_exhaust([X],X).
+max_without_exhaust([X1, X2|Rest], Max):-
+  X1 >= 250 -> max_without_exhaust([X2|Rest], Max);
+              (X1 > X2 -> max_without_exhaust([X1|Rest], Max);
+                         max_without_exhaust([X2|Rest], Max)).
+/*
+max_without_exhaust([X|Rest], Max) :-
+  max([X|Rest], 0, Max).
+
+max([], Max, Max).
+max([X|Rest], MaxSoFar, Max) :-    % 2 conditionals here, if 250 (exhausted) then skip)
+  ( X = 250 -> max(Rest, MaxSoFar, Max);      
+  ( X <  MaxSoFar -> NewMax = MaxSoFar; NewMax = X)),
+  max(Rest, NewMax, Max).
+*/
+min([X|Rest], Min) :-
+ min([X|Rest], 250, Min).
+
+min([], Min, Min).
+min([X|Rest], MinSoFar, Min) :-
+  ( X < MinSoFar -> NewMin is X; NewMin is MinSoFar),
+  min(Rest, NewMin, Min).
+
+avg([], 0).
+avg(List, Avg) :-
+  sum(List, Sum),
+  leng(List, N),
+  Avg is Sum / N.
+
+leng([_], 1).
+leng([_|Rest], Len) :-
+  leng(Rest, RestLen),
+  Len is 1 + RestLen.
+
+sum([X],X).
+sum([X|Rest],Sum):-
+  sum(Rest, SumRest),
+  Sum = X + SumRest.
+
+
+
+
+
+% ----------- TASK 2 --------------- %
+
+findPossMoves('b', [AliveBlues, AliveReds], PossMoves) :-
+  findall([A,B,MA,MB], (member([A,B], AliveBlues),
+                        neighbour_position(A,B,[MA,MB]),
+                        \+member([MA,MB], AliveBlues),
+                        \+member([MA,MB], AliveReds)
+                       ), 
+          PossMoves).
+
+findPossMoves('r', [AliveBlues, AliveReds], PossMoves) :-
+  findall([A,B,MA,MB], (member([A,B], AliveReds),
+                        neighbour_position(A,B,[MA,MB]),
+                        \+member([MA,MB], AliveReds),
+                        \+member([MA,MB], AliveBlues)
+                       ), 
+          PossMoves).
+
+%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%% BLOODLUST STRATEGY
+
+bloodlust('b', [AliveBlues, AliveReds], [NewAliveBlues, AliveReds], Move) :-
+  bloodlust_move('b', [AliveBlues, AliveReds], Move),
+  alter_board(Move, AliveBlues, NewAliveBlues).
+
+bloodlust('r', [AliveBlues, AliveReds], [AliveBlues, NewAliveReds], Move) :-
+  bloodlust_move('r', [AliveBlues, AliveReds], Move),
+  alter_board(Move, AliveReds, NewAliveReds).
+
+bloodlust_move(PlayerColour, CurrentState, Move) :-
+  findPossMoves(PlayerColour, CurrentState, PossMoves),
+  findall(ResultCount, (member(PossMovesElem,PossMoves),
+                        blust_cal(PlayerColour, PossMovesElem, CurrentState, ResultCount)
+                      ),
+          ResultCounts),
+  min_member(MinCount, ResultCounts),
+  format('blood lust calculating ... mincount: ~d~n', MinCount),
+  % assuming that findall is ordered %
+  nth1(Index, ResultCounts, MinCount),
+  nth1(Index, PossMoves, Move).
+  %else use this%
+  %blust_aux(PlayerColour, Move, [AliveBlues, AliveReds], MinCount).
+  
+blust_cal('b', Move, [AliveBlues, AliveReds], ResultRedCount) :-
+  alter_board(Move, AliveBlues, NewAliveBlues),
+  next_generation([NewAliveBlues, AliveReds], [_NGBlues, _NGReds]),
+  length(_NGReds, ResultRedCount).
+
+blust_cal('r', Move, [AliveBlues, AliveReds], ResultBlueCount) :-
+  alter_board(Move, AliveReds, NewAliveReds),
+  next_generation([AliveBlues, NewAliveReds], [_NGBlues, _NGReds]),
+  length(_NGBlues, ResultBlueCount).
+
+
+%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%% SELF PRESERVATION STRATEGY
+
+self_preservation('b', [AliveBlues, AliveReds], [NewAliveBlues, AliveReds], Move) :-
+  self_preservation_move('b', [AliveBlues, AliveReds], Move),
+  alter_board(Move, AliveBlues, NewAliveBlues).
+
+self_preservation('r', [AliveBlues, AliveReds], [AliveBlues, NewAliveReds], Move) :-
+  self_preservation_move('r', [AliveBlues, AliveReds], Move),
+  alter_board(Move, AliveReds, NewAliveReds).
+
+self_preservation_move(PlayerColour, CurrentState, Move) :-
+  findPossMoves(PlayerColour, CurrentState, PossMoves),
+  findall(ResultCount, (member(PossMovesElem, PossMoves),
+                        sp_cal(PlayerColour, PossMovesElem, CurrentState, ResultCount)                       ),
+          ResultCounts),
+  max_member(MaxCount, ResultCounts),
+  format('selfpreservation calculating maxcount: ~d~n', MaxCount),
+  nth1(Index, ResultCounts, MaxCount),
+  nth1(Index, PossMoves, Move).
+
+sp_cal('b', Move, [AliveBlues, AliveReds], ResultBlueCount) :-
+  alter_board(Move, AliveBlues, NewAliveBlues),
+  next_generation([NewAliveBlues, AliveReds], [_NGBlues, _NGReds]),
+  length(_NGBlues, ResultBlueCount).
+
+sp_cal('r', Move, [AliveBlues, AliveReds], ResultRedCount) :-
+  alter_board(Move, AliveReds, NewAliveReds),
+  next_generation([AliveBlues, NewAliveReds], [_NGBlues, _NGReds]),
+  length(_NGReds, ResultRedCount).
+
+
+%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%% LAND GRAB STRATEGY
+
+land_grab('b', [AliveBlues, AliveReds], [NewAliveBlues, AliveReds], Move) :-
+  land_grab_move('b', [AliveBlues, AliveReds], Move),
+  alter_board(Move, AliveBlues, NewAliveBlues).
+
+land_grab('r', [AliveBlues, AliveReds], [AliveBlues, NewAliveReds], Move) :-
+  land_grab_move('r', [AliveBlues, AliveReds], Move),
+  alter_board(Move, AliveReds, NewAliveReds).
+
+land_grab_move(PlayerColour, CurrentState, Move) :-
+  findPossMoves(PlayerColour, CurrentState, PossMoves),
+  findall(LGCount, (member(PossMovesElem, PossMoves),
+                        lg_cal(PlayerColour, PossMovesElem, CurrentState, LGCount)                       
+                   ),
+          ResultCounts),
+  max_member(MaxCount, ResultCounts),
+  nth1(Index, ResultCounts, MaxCount),
+  nth1(Index, PossMoves, Move).
+
+lg_cal('b', Move, [AliveBlues, AliveReds], LGCount) :-
+  alter_board(Move, AliveBlues, NewAliveBlues),
+  next_generation([NewAliveBlues, AliveReds], [NGBlues, NGReds]),
+  length(NGBlues, ResultBlueCount),
+  length(NGReds, ResultRedCount),
+  LGCount is ResultBlueCount - ResultRedCount.
+
+lg_cal('r', Move, [AliveBlues, AliveReds], LGCount) :-
+  alter_board(Move, AliveReds, NewAliveReds),
+  next_generation([AliveBlues, NewAliveReds], [NGBlues, NGReds]),
+  length(NGBlues, ResultBlueCount),
+  length(NGReds, ResultRedCount),
+  LGCount is ResultRedCount - ResultBlueCount.
+ 
+
+%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%% MINIMAX STRATEGY
+
+
+minimax('b', [AliveBlues,AliveReds], [NewAliveBlues, AliveReds], Move) :-
+  maxValue('b', [AliveBlues, AliveReds], Move, 0, _),
+  alter_board(Move, AliveBlues, NewAliveBlues).
+
+minimax('r', [AliveBlues,AliveReds], [AliveBlues, NewAliveReds], Move) :-
+  maxValue('r', [AliveBlues, AliveReds], Move, 0, _),
+  alter_board(Move, AliveReds, NewAliveReds).
+
+
+maxValue('b', [AliveBlues, AliveReds], Move, Depth, RetValue) :-
+  (Depth = 2 
+    ->
+      h_function('b', [AliveBlues, AliveReds], RetValue)
+    ;
+      findPossMoves('b', [AliveBlues, AliveReds], PossMoves),
+      NextDepth is Depth + 1,
+      findall((PMElem,X), (member(PMElem, PossMoves),
+                  alter_board(PMElem, AliveBlues, NewAliveBlues),
+                  next_generation([NewAliveBlues, AliveReds], NewBoardState),
+                  minValue('r', NewBoardState, _, NextDepth, X)
+                 ), 
+              MinValues),
+      find_max_pair(Move, RetValue, MinValues)
+    % ,format('chosen RetVal = ~d~n', RetValue)
+  ). 
+
+minValue('r', [AliveBlues, AliveReds], Move, Depth, RetValue) :-
+  (Depth = 2 
+    ->
+      h_function('r', [AliveBlues, AliveReds], RetValue)
+    ;
+      findPossMoves('r', [AliveBlues, AliveReds], PossMoves),
+      NextDepth is Depth + 1,
+      findall((PMElem,X), (member(PMElem, PossMoves),
+                  alter_board(PMElem, AliveReds, NewAliveReds),
+                  next_generation([AliveBlues, NewAliveReds], NewBoardState),
+                  maxValue('b', NewBoardState, _, NextDepth, X)
+                 ), 
+              MaxValues),
+      find_min_pair(Move, RetValue, MaxValues)
+    % ,format('chosen RetVal = ~d~n', RetValue)
+  ).
+
+maxValue('r', [AliveBlues, AliveReds], Move, Depth, RetValue) :-
+  (Depth = 2 
+    ->
+      h_function('r', [AliveBlues, AliveReds], RetValue)
+    ;
+      findPossMoves('r', [AliveBlues, AliveReds], PossMoves),
+      NextDepth is Depth + 1,
+      findall((PMElem,X), (member(PMElem, PossMoves),
+                  alter_board(PMElem, AliveReds, NewAliveReds),
+                  next_generation([AliveBlues, NewAliveReds], NewBoardState),
+                  minValue('b', NewBoardState, _, NextDepth, X)
+                 ), 
+              MinValues),
+      find_max_pair(Move, RetValue, MinValues) 
+    %  ,format('chosen RetVal = ~d~n', RetValue)
+  ). 
+
+minValue('b', [AliveBlues, AliveReds], Move, Depth, RetValue) :-
+  (Depth = 2 
+    ->
+      h_function('b', [AliveBlues, AliveReds], RetValue)
+    ;
+      findPossMoves('b', [AliveBlues, AliveReds], PossMoves),
+      NextDepth is Depth + 1,
+      findall((PMElem,X), (member(PMElem, PossMoves),
+                  alter_board(PMElem, AliveBlues, NewAliveBlues),
+                  next_generation([NewAliveBlues, AliveReds], NewBoardState),
+                  maxValue('r', NewBoardState, _, NextDepth, X)
+                 ), 
+              MaxValues),
+      find_min_pair(Move, RetValue, MaxValues) 
+    %  ,format('chosen RetVal = ~d~n', RetValue)
+  ).
+
+find_max_pair(RetK, RetV, PairList) :- 
+  findall(Value, member((_,Value), PairList), Values),
+  max_member(RetV, Values),
+  nth1(Index, Values, RetV), !,
+  nth1(Index, PairList, (RetK, RetV)).
+
+find_min_pair(RetK, RetV, PairList) :- 
+  findall(Value, member((_,Value), PairList), Values),
+  min_member(RetV, Values),
+  nth1(Index, Values, RetV), !,
+  nth1(Index, PairList, (RetK, RetV)).
+
+%%heuristic function
+h_function('r', [AliveBlues, AliveReds], RetValue) :-
+  length(AliveBlues, CountB),
+  length(AliveReds, CountR),
+  RetValue is CountR - CountB.
+
+h_function('b', [AliveBlues, AliveReds], RetValue) :-
+  length(AliveBlues, CountB),
+  length(AliveReds, CountR),
+  RetValue is CountB - CountR.
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
